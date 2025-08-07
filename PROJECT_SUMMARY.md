@@ -33,6 +33,7 @@
 - **Session Management**: Persistent conversation history and context
 - **State Management**: Advanced session state maintenance
 - **Progress Tracking**: Real-time task progress and status updates
+- **Self-Contained**: No external CDN dependencies, fully offline-capable
 
 ## 🏗️ Architecture Overview
 
@@ -114,6 +115,7 @@ docker-compose up --build
 - **Monitoring**: Health checks, metrics, and observability
 - **Security**: CORS, authentication hooks, and secure communication
 - **Reliability**: Fault tolerance, automatic recovery, and graceful degradation
+- **Self-Contained**: No external CDN dependencies, air-gap compatible
 
 ### Developer Experience
 

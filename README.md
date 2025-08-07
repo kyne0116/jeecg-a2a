@@ -27,6 +27,22 @@ A complete A2A (Agent-to-Agent) protocol platform implementation based on Google
 - **Multi-media Messages**: Text, images, files, and structured data support
 - **Session Management**: Conversation history and context persistence
 - **State Management**: Advanced session state maintenance
+- **Offline-Capable**: Self-contained with no external CDN dependencies
+
+## 🌐 Self-Contained Architecture
+
+The JEECG A2A Platform is designed to be completely self-contained and offline-capable:
+
+- **No External CDN Dependencies**: All frontend resources (Bootstrap, Bootstrap Icons) are bundled locally
+- **Offline Operation**: The platform works without internet connectivity to external services
+- **Enterprise-Ready**: Suitable for air-gapped environments and secure deployments
+- **Local Static Resources**: All CSS, JavaScript, and font files are served from `/static/vendor/`
+
+### Included Local Resources
+
+- **Bootstrap 5.3.0**: Complete CSS and JavaScript bundle
+- **Bootstrap Icons 1.10.0**: Full icon font with WOFF/WOFF2 formats
+- **Self-Hosted Fonts**: No external font loading dependencies
 
 ## Quick Start
 
