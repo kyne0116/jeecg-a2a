@@ -1,0 +1,410 @@
+{% extends "base.html" %}
+
+{% block title %}Chat - {{ platform_name }}{% endblock %}
+
+{% block extra_head %}
+<style>
+    .chat-container {
+        height: 70vh;
+        border: 1px solid #dee2e6;
+        border-radius: 0.375rem;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+    }
+    
+    .chat-messages {
+        flex: 1;
+        overflow-y: auto;
+        padding: 1rem;
+        background-color: var(--bs-body-bg);
+    }
+    
+    .message {
+        margin-bottom: 1rem;
+        display: flex;
+        align-items: flex-start;
+    }
+    
+    .message.user {
+        justify-content: flex-end;
+    }
+    
+    .message.agent {
+        justify-content: flex-start;
+    }
+    
+    .message-content {
+        max-width: 70%;
+        padding: 0.75rem 1rem;
+        border-radius: 1rem;
+        word-wrap: break-word;
+    }
+    
+    .message.user .message-content {
+        background-color: var(--bs-primary);
+        color: white;
+        border-bottom-right-radius: 0.25rem;
+    }
+    
+    .message.agent .message-content {
+        background-color: var(--bs-light);
+        color: var(--bs-dark);
+        border-bottom-left-radius: 0.25rem;
+    }
+    
+    .message-time {
+        font-size: 0.75rem;
+        color: var(--bs-secondary);
+        margin-top: 0.25rem;
+    }
+    
+    .chat-input {
+        border-top: 1px solid #dee2e6;
+        padding: 1rem;
+        background-color: var(--bs-light);
+    }
+    
+    .typing-indicator {
+        display: none;
+        padding: 0.5rem 1rem;
+        font-style: italic;
+        color: var(--bs-secondary);
+    }
+    
+    .connection-status {
+        padding: 0.5rem 1rem;
+        font-size: 0.875rem;
+        border-bottom: 1px solid #dee2e6;
+    }
+    
+    .status-connected {
+        background-color: #d1edff;
+        color: #0c63e4;
+    }
+    
+    .status-disconnected {
+        background-color: #f8d7da;
+        color: #721c24;
+    }
+    
+    .agent-info {
+        background-color: var(--bs-info);
+        color: white;
+        padding: 1rem;
+        border-radius: 0.375rem;
+        margin-bottom: 1rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-8">
+        <!-- Chat Interface -->
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="bi bi-chat-dots"></i>
+                    A2A Chat Interface
+                </h5>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-sm btn-outline-secondary" onclick="clearChat()">
+                        <i class="bi bi-trash"></i> Clear
+                    </button>
+                    <button class="btn btn-sm btn-outline-primary" onclick="toggleConnection()">
+                        <i class="bi bi-arrow-clockwise"></i> Reconnect
+                    </button>
+                </div>
+            </div>
+            
+            <div class="chat-container">
+                <!-- Connection Status -->
+                <div id="connectionStatus" class="connection-status status-disconnected">
+                    <i class="bi bi-wifi-off"></i> Connecting...
+                </div>
+                
+                <!-- Chat Messages -->
+                <div id="chatMessages" class="chat-messages">
+                    <div class="message agent">
+                        <div class="message-content">
+                            <div>Welcome to {{ platform_name }}! 🤖</div>
+                            <div class="message-time">System message</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Typing Indicator -->
+                <div id="typingIndicator" class="typing-indicator">
+                    <i class="bi bi-three-dots"></i> Agent is typing...
+                </div>
+                
+                <!-- Chat Input -->
+                <div class="chat-input">
+                    <div class="input-group">
+                        <input type="text" id="messageInput" class="form-control" 
+                               placeholder="Type your message..." 
+                               onkeypress="handleKeyPress(event)">
+                        <button class="btn btn-primary" onclick="sendMessage()">
+                            <i class="bi bi-send"></i> Send
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-lg-4">
+        <!-- Platform Info -->
+        <div class="agent-info">
+            <h6><i class="bi bi-info-circle"></i> Platform Information</h6>
+            <p class="mb-1"><strong>Name:</strong> {{ platform_name }}</p>
+            <p class="mb-1"><strong>Version:</strong> {{ platform_version }}</p>
+            <p class="mb-1"><strong>Agents:</strong> <span id="agentsCount">{{ agents_count }}</span></p>
+            <p class="mb-0"><strong>Status:</strong> <span id="platformStatus" class="badge bg-success">Active</span></p>
+        </div>
+        
+        <!-- Capabilities -->
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="bi bi-gear"></i> Platform Capabilities</h6>
+            </div>
+            <div class="card-body">
+                <ul class="list-unstyled mb-0">
+                    {% for capability, enabled in capabilities.items() %}
+                    <li class="mb-2">
+                        <i class="bi bi-{{ 'check-circle-fill text-success' if enabled else 'x-circle-fill text-danger' }}"></i>
+                        {{ capability.replace('_', ' ').title() }}
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+        
+        <!-- Quick Actions -->
+        <div class="card mt-3">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="bi bi-lightning"></i> Quick Actions</h6>
+            </div>
+            <div class="card-body">
+                <div class="d-grid gap-2">
+                    <button class="btn btn-outline-primary btn-sm" onclick="sendQuickMessage('List all available agents')">
+                        <i class="bi bi-people"></i> List Agents
+                    </button>
+                    <button class="btn btn-outline-primary btn-sm" onclick="sendQuickMessage('What can you help me with?')">
+                        <i class="bi bi-question-circle"></i> Get Help
+                    </button>
+                    <button class="btn btn-outline-primary btn-sm" onclick="sendQuickMessage('Show platform status')">
+                        <i class="bi bi-speedometer2"></i> Platform Status
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Session Info -->
+        <div class="card mt-3">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="bi bi-clock"></i> Session Info</h6>
+            </div>
+            <div class="card-body">
+                <p class="mb-1"><strong>Session ID:</strong> <span id="sessionId">-</span></p>
+                <p class="mb-1"><strong>Connection ID:</strong> <span id="connectionId">-</span></p>
+                <p class="mb-0"><strong>Messages:</strong> <span id="messageCount">0</span></p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    // WebSocket connection
+    let ws = null;
+    let sessionId = generateSessionId();
+    let messageCount = 0;
+    let reconnectAttempts = 0;
+    const maxReconnectAttempts = 5;
+    
+    // Initialize chat
+    document.addEventListener('DOMContentLoaded', function() {
+        connectWebSocket();
+        document.getElementById('sessionId').textContent = sessionId;
+    });
+    
+    function generateSessionId() {
+        return 'session_' + Math.random().toString(36).substr(2, 9);
+    }
+    
+    function connectWebSocket() {
+        const wsUrl = `ws://{{ request.url.hostname }}:{{ request.url.port }}/ws/chat/${sessionId}`;
+
+        try {
+            ws = new WebSocket(wsUrl);
+            
+            ws.onopen = function(event) {
+                console.log('WebSocket connected');
+                updateConnectionStatus(true);
+                reconnectAttempts = 0;
+            };
+            
+            ws.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                handleWebSocketMessage(data);
+            };
+            
+            ws.onclose = function(event) {
+                console.log('WebSocket disconnected');
+                updateConnectionStatus(false);
+                
+                // Attempt to reconnect
+                if (reconnectAttempts < maxReconnectAttempts) {
+                    setTimeout(() => {
+                        reconnectAttempts++;
+                        connectWebSocket();
+                    }, 2000 * reconnectAttempts);
+                }
+            };
+            
+            ws.onerror = function(error) {
+                console.error('WebSocket error:', error);
+                updateConnectionStatus(false);
+            };
+            
+        } catch (error) {
+            console.error('Failed to create WebSocket:', error);
+            updateConnectionStatus(false);
+        }
+    }
+    
+    function handleWebSocketMessage(data) {
+        console.log('Received message:', data);
+        
+        switch (data.type) {
+            case 'system':
+                if (data.connection_id) {
+                    document.getElementById('connectionId').textContent = data.connection_id;
+                }
+                break;
+                
+            case 'message':
+                addMessage(data.content, data.role, data.timestamp);
+                break;
+                
+            case 'task_submitted':
+                showTypingIndicator(true);
+                break;
+                
+            case 'task_update':
+                if (data.status.state === 'completed' || data.status.state === 'failed') {
+                    showTypingIndicator(false);
+                }
+                break;
+                
+            case 'error':
+                addMessage(`Error: ${data.message}`, 'system');
+                showTypingIndicator(false);
+                break;
+        }
+    }
+    
+    function sendMessage() {
+        const input = document.getElementById('messageInput');
+        const message = input.value.trim();
+        
+        if (message && ws && ws.readyState === WebSocket.OPEN) {
+            // Add user message to chat
+            addMessage(message, 'user');
+            
+            // Send via WebSocket
+            ws.send(JSON.stringify({
+                type: 'chat',
+                content: message,
+                timestamp: new Date().toISOString()
+            }));
+            
+            input.value = '';
+            messageCount++;
+            document.getElementById('messageCount').textContent = messageCount;
+        }
+    }
+    
+    function sendQuickMessage(message) {
+        document.getElementById('messageInput').value = message;
+        sendMessage();
+    }
+    
+    function addMessage(content, role, timestamp) {
+        const messagesContainer = document.getElementById('chatMessages');
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `message ${role}`;
+        
+        const time = timestamp ? new Date(timestamp).toLocaleTimeString() : new Date().toLocaleTimeString();
+        
+        messageDiv.innerHTML = `
+            <div class="message-content">
+                <div>${content}</div>
+                <div class="message-time">${time}</div>
+            </div>
+        `;
+        
+        messagesContainer.appendChild(messageDiv);
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+    
+    function showTypingIndicator(show) {
+        const indicator = document.getElementById('typingIndicator');
+        indicator.style.display = show ? 'block' : 'none';
+        
+        if (show) {
+            const messagesContainer = document.getElementById('chatMessages');
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+    }
+    
+    function updateConnectionStatus(connected) {
+        const statusElement = document.getElementById('connectionStatus');
+        const platformStatus = document.getElementById('platformStatus');
+        
+        if (connected) {
+            statusElement.className = 'connection-status status-connected';
+            statusElement.innerHTML = '<i class="bi bi-wifi"></i> Connected to A2A Platform';
+            platformStatus.className = 'badge bg-success';
+            platformStatus.textContent = 'Active';
+        } else {
+            statusElement.className = 'connection-status status-disconnected';
+            statusElement.innerHTML = '<i class="bi bi-wifi-off"></i> Disconnected';
+            platformStatus.className = 'badge bg-danger';
+            platformStatus.textContent = 'Disconnected';
+        }
+    }
+    
+    function handleKeyPress(event) {
+        if (event.key === 'Enter') {
+            sendMessage();
+        }
+    }
+    
+    function clearChat() {
+        const messagesContainer = document.getElementById('chatMessages');
+        messagesContainer.innerHTML = `
+            <div class="message agent">
+                <div class="message-content">
+                    <div>Chat cleared. How can I help you?</div>
+                    <div class="message-time">System message</div>
+                </div>
+            </div>
+        `;
+        messageCount = 0;
+        document.getElementById('messageCount').textContent = messageCount;
+    }
+    
+    function toggleConnection() {
+        if (ws) {
+            ws.close();
+        }
+        setTimeout(() => {
+            connectWebSocket();
+        }, 1000);
+    }
+</script>
+{% endblock %}

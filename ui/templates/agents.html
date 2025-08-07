@@ -1,0 +1,338 @@
+{% extends "base.html" %}
+
+{% block title %}Agents Management - {{ platform_name }}{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2><i class="bi bi-people"></i> Agents Management</h2>
+            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#registerAgentModal">
+                <i class="bi bi-plus-circle"></i> Register Agent
+            </button>
+        </div>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <h5 class="card-title text-primary">{{ registry_stats.total_agents }}</h5>
+                <p class="card-text">Total Agents</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <h5 class="card-title text-success">{{ registry_stats.active_agents }}</h5>
+                <p class="card-text">Active Agents</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <h5 class="card-title text-warning">{{ registry_stats.unhealthy_agents }}</h5>
+                <p class="card-text">Unhealthy Agents</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <h5 class="card-title text-info">{{ registry_stats.capabilities|length }}</h5>
+                <p class="card-text">Capabilities</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Registered Agents</h5>
+            </div>
+            <div class="card-body">
+                {% if agents %}
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>URL</th>
+                                <th>Status</th>
+                                <th>Capabilities</th>
+                                <th>Last Seen</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for agent in agents %}
+                            <tr>
+                                <td>
+                                    <strong>{{ agent.name }}</strong>
+                                    {% if agent.description %}
+                                    <br><small class="text-muted">{{ agent.description[:100] }}{% if agent.description|length > 100 %}...{% endif %}</small>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <a href="{{ agent.url }}" target="_blank" class="text-decoration-none">
+                                        {{ agent.url }}
+                                        <i class="bi bi-box-arrow-up-right"></i>
+                                    </a>
+                                </td>
+                                <td>
+                                    {% if agent.status == 'active' %}
+                                    <span class="badge bg-success">Active</span>
+                                    {% elif agent.status == 'unhealthy' %}
+                                    <span class="badge bg-warning">Unhealthy</span>
+                                    {% else %}
+                                    <span class="badge bg-secondary">{{ agent.status|title }}</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% for capability in agent.capabilities[:3] %}
+                                    <span class="badge bg-light text-dark me-1">{{ capability.name }}</span>
+                                    {% endfor %}
+                                    {% if agent.capabilities|length > 3 %}
+                                    <span class="badge bg-secondary">+{{ agent.capabilities|length - 3 }} more</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <small>{{ agent.last_seen.strftime('%Y-%m-%d %H:%M:%S') }}</small>
+                                </td>
+                                <td>
+                                    <div class="btn-group btn-group-sm">
+                                        <button class="btn btn-outline-primary" onclick="checkAgentHealth('{{ agent.url }}')">
+                                            <i class="bi bi-heart-pulse"></i>
+                                        </button>
+                                        <button class="btn btn-outline-info" onclick="viewAgentDetails('{{ agent.url }}')">
+                                            <i class="bi bi-eye"></i>
+                                        </button>
+                                        <button class="btn btn-outline-danger" onclick="unregisterAgent('{{ agent.url }}')">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center py-5">
+                    <i class="bi bi-people display-1 text-muted"></i>
+                    <h4 class="mt-3">No Agents Registered</h4>
+                    <p class="text-muted">Register your first agent to get started with the A2A platform.</p>
+                    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#registerAgentModal">
+                        <i class="bi bi-plus-circle"></i> Register Agent
+                    </button>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Register Agent Modal -->
+<div class="modal fade" id="registerAgentModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Register New Agent</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="registerAgentForm">
+                    <div class="mb-3">
+                        <label for="agentUrl" class="form-label">Agent URL</label>
+                        <input type="url" class="form-control" id="agentUrl" required
+                               placeholder="https://example.com" 
+                               pattern="https?://.+">
+                        <div class="form-text">
+                            Enter the base URL of the agent. The platform will automatically append 
+                            <code>/.well-known/agent.json</code> to discover the agent card.
+                        </div>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="forceRefresh">
+                        <label class="form-check-label" for="forceRefresh">
+                            Force refresh if already registered
+                        </label>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="registerAgent()">
+                    <i class="bi bi-plus-circle"></i> Register Agent
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Agent Details Modal -->
+<div class="modal fade" id="agentDetailsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Agent Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="agentDetailsContent">
+                <!-- Content will be loaded dynamically -->
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    async function registerAgent() {
+        const url = document.getElementById('agentUrl').value;
+        const forceRefresh = document.getElementById('forceRefresh').checked;
+        
+        if (!url) {
+            showNotification('Please enter an agent URL', 'error');
+            return;
+        }
+        
+        try {
+            const response = await fetch('{{ api_base_url }}/agents/register', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    url: url,
+                    force_refresh: forceRefresh
+                })
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+                showNotification('Agent registered successfully', 'success');
+                // Close modal and refresh page
+                const modal = bootstrap.Modal.getInstance(document.getElementById('registerAgentModal'));
+                modal.hide();
+                setTimeout(() => location.reload(), 1000);
+            } else {
+                showNotification(result.message || 'Failed to register agent', 'error');
+            }
+        } catch (error) {
+            console.error('Registration error:', error);
+            showNotification('Error registering agent: ' + error.message, 'error');
+        }
+    }
+    
+    async function checkAgentHealth(agentUrl) {
+        try {
+            showNotification('Checking agent health...', 'info', 2000);
+            
+            // Get agent ID from URL (simple hash)
+            const agentId = btoa(agentUrl).replace(/[^a-zA-Z0-9]/g, '');
+            
+            const response = await fetch(`{{ api_base_url }}/agents/${agentId}/health-check`, {
+                method: 'POST'
+            });
+            
+            const result = await response.json();
+            
+            if (result.healthy) {
+                showNotification('Agent is healthy', 'success');
+            } else {
+                showNotification('Agent health check failed', 'warning');
+            }
+        } catch (error) {
+            console.error('Health check error:', error);
+            showNotification('Error checking agent health', 'error');
+        }
+    }
+    
+    async function viewAgentDetails(agentUrl) {
+        try {
+            // Fetch agent card directly
+            const response = await fetch(agentUrl + '/.well-known/agent.json');
+            const agentCard = await response.json();
+            
+            const content = `
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>Basic Information</h6>
+                        <table class="table table-sm">
+                            <tr><td><strong>Name:</strong></td><td>${agentCard.name}</td></tr>
+                            <tr><td><strong>Version:</strong></td><td>${agentCard.version}</td></tr>
+                            <tr><td><strong>URL:</strong></td><td><a href="${agentCard.url}" target="_blank">${agentCard.url}</a></td></tr>
+                            ${agentCard.provider ? `<tr><td><strong>Provider:</strong></td><td>${agentCard.provider.name}</td></tr>` : ''}
+                        </table>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>Capabilities</h6>
+                        <div class="mb-3">
+                            ${agentCard.capabilities ? agentCard.capabilities.map(cap => 
+                                `<span class="badge bg-primary me-1 mb-1">${cap.name}</span>`
+                            ).join('') : 'No capabilities listed'}
+                        </div>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-12">
+                        <h6>Description</h6>
+                        <p>${agentCard.description || 'No description available'}</p>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-12">
+                        <h6>Raw Agent Card</h6>
+                        <pre class="bg-light p-3 rounded"><code>${JSON.stringify(agentCard, null, 2)}</code></pre>
+                    </div>
+                </div>
+            `;
+            
+            document.getElementById('agentDetailsContent').innerHTML = content;
+            const modal = new bootstrap.Modal(document.getElementById('agentDetailsModal'));
+            modal.show();
+            
+        } catch (error) {
+            console.error('Error fetching agent details:', error);
+            showNotification('Error fetching agent details', 'error');
+        }
+    }
+    
+    async function unregisterAgent(agentUrl) {
+        if (!confirm('Are you sure you want to unregister this agent?')) {
+            return;
+        }
+        
+        try {
+            // Get agent ID from URL (simple hash)
+            const agentId = btoa(agentUrl).replace(/[^a-zA-Z0-9]/g, '');
+            
+            const response = await fetch(`{{ api_base_url }}/agents/${agentId}`, {
+                method: 'DELETE'
+            });
+            
+            if (response.ok) {
+                showNotification('Agent unregistered successfully', 'success');
+                setTimeout(() => location.reload(), 1000);
+            } else {
+                showNotification('Failed to unregister agent', 'error');
+            }
+        } catch (error) {
+            console.error('Unregistration error:', error);
+            showNotification('Error unregistering agent', 'error');
+        }
+    }
+    
+    // Auto-refresh every 30 seconds
+    setInterval(() => {
+        location.reload();
+    }, 30000);
+</script>
+{% endblock %}

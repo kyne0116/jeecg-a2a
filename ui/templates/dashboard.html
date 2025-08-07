@@ -1,0 +1,337 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - {{ platform_name }}{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <h2><i class="bi bi-speedometer2"></i> Platform Dashboard</h2>
+        <p class="text-muted">Real-time overview of your A2A platform performance and status.</p>
+    </div>
+</div>
+
+<!-- Platform Status Cards -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card metric-card bg-primary">
+            <div class="card-body text-center">
+                <div class="metric-value">{{ registry_stats.total_agents }}</div>
+                <div class="metric-label">Total Agents</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card metric-card bg-success">
+            <div class="card-body text-center">
+                <div class="metric-value">{{ scheduler_stats.active_tasks }}</div>
+                <div class="metric-label">Active Tasks</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card metric-card bg-info">
+            <div class="card-body text-center">
+                <div class="metric-value">{{ scheduler_stats.completed_tasks }}</div>
+                <div class="metric-label">Completed Tasks</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card metric-card bg-warning">
+            <div class="card-body text-center">
+                <div class="metric-value">{{ scheduler_stats.worker_count }}</div>
+                <div class="metric-label">Active Workers</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Platform Information -->
+<div class="row mb-4">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-info-circle"></i> Platform Information</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <table class="table table-borderless table-sm">
+                            <tr>
+                                <td><strong>Name:</strong></td>
+                                <td>{{ platform_info.name }}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Version:</strong></td>
+                                <td>{{ platform_info.version }}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Status:</strong></td>
+                                <td>
+                                    <span class="badge bg-{{ 'success' if platform_info.status == 'running' else 'danger' }}">
+                                        {{ platform_info.status.title() }}
+                                    </span>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>Agents Count:</strong></td>
+                                <td>{{ platform_info.agents_count }}</td>
+                            </tr>
+                        </table>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>Platform Capabilities</h6>
+                        <ul class="list-unstyled">
+                            {% for capability, enabled in platform_info.capabilities.items() %}
+                            <li class="mb-1">
+                                <i class="bi bi-{{ 'check-circle-fill text-success' if enabled else 'x-circle-fill text-danger' }}"></i>
+                                {{ capability.replace('_', ' ').title() }}
+                            </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-gear"></i> Configuration</h5>
+            </div>
+            <div class="card-body">
+                <table class="table table-borderless table-sm">
+                    <tr>
+                        <td><strong>Max Tasks:</strong></td>
+                        <td>{{ settings.max_concurrent_tasks }}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Agent Timeout:</strong></td>
+                        <td>{{ settings.agent_timeout }}s</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Auto Discovery:</strong></td>
+                        <td>
+                            <span class="badge bg-{{ 'success' if settings.auto_discovery else 'secondary' }}">
+                                {{ 'Enabled' if settings.auto_discovery else 'Disabled' }}
+                            </span>
+                        </td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Agent Registry Status -->
+<div class="row mb-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-people"></i> Agent Registry Status</h5>
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-4">
+                        <h4 class="text-success">{{ registry_stats.active_agents }}</h4>
+                        <small class="text-muted">Active</small>
+                    </div>
+                    <div class="col-4">
+                        <h4 class="text-warning">{{ registry_stats.unhealthy_agents }}</h4>
+                        <small class="text-muted">Unhealthy</small>
+                    </div>
+                    <div class="col-4">
+                        <h4 class="text-info">{{ registry_stats.capabilities|length }}</h4>
+                        <small class="text-muted">Capabilities</small>
+                    </div>
+                </div>
+                
+                {% if registry_stats.capabilities %}
+                <hr>
+                <h6>Available Capabilities</h6>
+                <div class="capability-tags">
+                    {% for capability, count in registry_stats.capabilities.items() %}
+                    <span class="badge bg-light text-dark me-1 mb-1">
+                        {{ capability }} ({{ count }})
+                    </span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-cpu"></i> Task Scheduler Status</h5>
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-3">
+                        <h4 class="text-primary">{{ scheduler_stats.active_tasks }}</h4>
+                        <small class="text-muted">Active</small>
+                    </div>
+                    <div class="col-3">
+                        <h4 class="text-success">{{ scheduler_stats.completed_tasks }}</h4>
+                        <small class="text-muted">Completed</small>
+                    </div>
+                    <div class="col-3">
+                        <h4 class="text-danger">{{ scheduler_stats.failed_tasks }}</h4>
+                        <small class="text-muted">Failed</small>
+                    </div>
+                    <div class="col-3">
+                        <h4 class="text-warning">{{ scheduler_stats.queue_size }}</h4>
+                        <small class="text-muted">Queued</small>
+                    </div>
+                </div>
+                
+                <hr>
+                <div class="d-flex justify-content-between align-items-center">
+                    <span>Queue Utilization:</span>
+                    <span class="badge bg-secondary">{{ scheduler_stats.queue_size }}/{{ settings.max_concurrent_tasks }}</span>
+                </div>
+                <div class="progress mt-2">
+                    <div class="progress-bar" role="progressbar" 
+                         style="width: {{ (scheduler_stats.queue_size / settings.max_concurrent_tasks * 100) if settings.max_concurrent_tasks > 0 else 0 }}%">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- System Health -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-heart-pulse"></i> System Health</h5>
+                <button class="btn btn-sm btn-outline-primary" onclick="refreshHealth()">
+                    <i class="bi bi-arrow-clockwise"></i> Refresh
+                </button>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="d-flex align-items-center mb-3">
+                            <div class="status-indicator status-active me-2"></div>
+                            <div>
+                                <strong>Platform Core</strong>
+                                <br><small class="text-muted">All systems operational</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="d-flex align-items-center mb-3">
+                            <div class="status-indicator status-{{ 'active' if registry_stats.active_agents > 0 else 'inactive' }} me-2"></div>
+                            <div>
+                                <strong>Agent Registry</strong>
+                                <br><small class="text-muted">{{ registry_stats.active_agents }} agents active</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="d-flex align-items-center mb-3">
+                            <div class="status-indicator status-{{ 'active' if scheduler_stats.worker_count > 0 else 'inactive' }} me-2"></div>
+                            <div>
+                                <strong>Task Scheduler</strong>
+                                <br><small class="text-muted">{{ scheduler_stats.worker_count }} workers running</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Quick Actions -->
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-lightning"></i> Quick Actions</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-3">
+                        <div class="d-grid">
+                            <a href="/chat" class="btn btn-primary">
+                                <i class="bi bi-chat-dots"></i> Start Chat
+                            </a>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="d-grid">
+                            <a href="/chat/agents" class="btn btn-outline-primary">
+                                <i class="bi bi-people"></i> Manage Agents
+                            </a>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="d-grid">
+                            <a href="/chat/tasks" class="btn btn-outline-primary">
+                                <i class="bi bi-list-task"></i> View Tasks
+                            </a>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="d-grid">
+                            <a href="/health" class="btn btn-outline-secondary" target="_blank">
+                                <i class="bi bi-heart-pulse"></i> Health Check
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    async function refreshHealth() {
+        try {
+            showNotification('Refreshing health status...', 'info', 2000);
+            
+            const response = await fetch('/health/detailed');
+            const health = await response.json();
+            
+            if (health.status === 'healthy') {
+                showNotification('All systems healthy', 'success');
+            } else {
+                showNotification('Some systems may have issues', 'warning');
+            }
+            
+            // Refresh the page to update metrics
+            setTimeout(() => location.reload(), 1000);
+            
+        } catch (error) {
+            console.error('Health check error:', error);
+            showNotification('Error checking system health', 'error');
+        }
+    }
+    
+    // Auto-refresh dashboard every 30 seconds
+    setInterval(() => {
+        location.reload();
+    }, 30000);
+    
+    // Initialize real-time updates
+    document.addEventListener('DOMContentLoaded', function() {
+        console.log('Dashboard initialized');
+        
+        // Add some visual feedback for the metrics
+        document.querySelectorAll('.metric-card').forEach(card => {
+            card.addEventListener('mouseenter', function() {
+                this.style.transform = 'translateY(-2px)';
+            });
+            
+            card.addEventListener('mouseleave', function() {
+                this.style.transform = 'translateY(0)';
+            });
+        });
+    });
+</script>
+{% endblock %}
