@@ -89,21 +89,60 @@ async def register_agent(request: AgentRegistrationRequest, http_request: Reques
 async def unregister_agent(agent_id: str):
     """
     Unregister an agent from the platform.
-    
+
     Args:
         agent_id: ID of the agent to unregister
-        
+
     Returns:
         Success status and message
     """
     try:
         success = await platform.unregister_agent(agent_id)
-        
+
         if success:
             return {"success": True, "message": "Agent unregistered successfully"}
         else:
             raise HTTPException(status_code=404, detail="Agent not found")
-            
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error unregistering agent {agent_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Unregistration failed: {str(e)}")
+
+
+@router.delete("/{agent_id}")
+async def delete_agent(agent_id: str):
+    """
+    Delete/unregister an agent from the platform (alternative endpoint for frontend compatibility).
+
+    Args:
+        agent_id: ID of the agent to delete (can be hash-based ID or base64-encoded URL)
+
+    Returns:
+        Success status and message
+    """
+    try:
+        # First try with the provided agent_id
+        success = await platform.unregister_agent(agent_id)
+
+        if not success:
+            # If not found, try to decode as base64 URL and convert to proper agent ID
+            try:
+                import base64
+                decoded_url = base64.b64decode(agent_id + '==').decode('utf-8')  # Add padding
+                # Convert URL to the same hash-based ID that the backend uses
+                proper_agent_id = str(hash(decoded_url.rstrip('/')))
+                success = await platform.unregister_agent(proper_agent_id)
+            except Exception:
+                # If base64 decoding fails, the agent_id might be invalid
+                pass
+
+        if success:
+            return {"success": True, "message": "Agent unregistered successfully"}
+        else:
+            raise HTTPException(status_code=404, detail="Agent not found")
+
     except HTTPException:
         raise
     except Exception as e:

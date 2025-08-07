@@ -59,9 +59,21 @@ app = FastAPI(
 # app.add_middleware(AgentAuthMiddleware)
 
 # Add CORS middleware with dynamic origins
+# Include common localhost variations for development
+allowed_origins = cors_manager.get_allowed_origins()
+# Add localhost variations if not already present
+localhost_origins = [
+    "http://localhost:9000",
+    "http://127.0.0.1:9000",
+    "http://0.0.0.0:9000"
+]
+for origin in localhost_origins:
+    if origin not in allowed_origins:
+        allowed_origins.append(origin)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=cors_manager.get_allowed_origins(),
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -213,9 +213,13 @@
                     force_refresh: forceRefresh
                 })
             });
-            
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
             const result = await response.json();
-            
+
             if (result.success) {
                 showNotification('Agent registered successfully', 'success');
                 // Close modal and refresh page
@@ -227,7 +231,11 @@
             }
         } catch (error) {
             console.error('Registration error:', error);
-            showNotification('Error registering agent: ' + error.message, 'error');
+            if (error.name === 'TypeError' && error.message.includes('fetch')) {
+                showNotification('Network error: Unable to connect to server. Please check if the server is running.', 'error');
+            } else {
+                showNotification('Error registering agent: ' + error.message, 'error');
+            }
         }
     }
     
@@ -313,20 +321,27 @@
         try {
             // Get agent ID from URL (simple hash)
             const agentId = btoa(agentUrl).replace(/[^a-zA-Z0-9]/g, '');
-            
+
             const response = await fetch(`{{ api_base_url }}/agents/${agentId}`, {
                 method: 'DELETE'
             });
-            
+
             if (response.ok) {
+                const result = await response.json();
                 showNotification('Agent unregistered successfully', 'success');
                 setTimeout(() => location.reload(), 1000);
             } else {
-                showNotification('Failed to unregister agent', 'error');
+                const errorData = await response.json().catch(() => ({}));
+                const errorMessage = errorData.detail || errorData.message || `HTTP ${response.status}: ${response.statusText}`;
+                showNotification(`Failed to unregister agent: ${errorMessage}`, 'error');
             }
         } catch (error) {
             console.error('Unregistration error:', error);
-            showNotification('Error unregistering agent', 'error');
+            if (error.name === 'TypeError' && error.message.includes('fetch')) {
+                showNotification('Network error: Unable to connect to server. Please check if the server is running.', 'error');
+            } else {
+                showNotification('Error unregistering agent: ' + error.message, 'error');
+            }
         }
     }
     
