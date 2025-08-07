@@ -62,7 +62,28 @@ class A2AProtocolHandler:
             response.raise_for_status()
             
             card_data = response.json()
-            agent_card = AgentCard(**card_data)
+
+            # Create a more flexible agent card by handling validation errors
+            try:
+                agent_card = AgentCard(**card_data)
+            except Exception as validation_error:
+                logger.warning(f"Validation error for AgentCard, trying with minimal data: {validation_error}")
+                # Create a minimal agent card with required fields only
+                minimal_data = {
+                    "name": card_data.get("name", "Unknown Agent"),
+                    "url": agent_url,
+                    "version": card_data.get("version", "1.0.0"),
+                    "description": card_data.get("description", ""),
+                }
+                # Add optional fields if they exist and are valid
+                if "capabilities" in card_data:
+                    minimal_data["capabilities"] = card_data["capabilities"]
+                if "provider" in card_data:
+                    minimal_data["provider"] = card_data["provider"]
+                if "metadata" in card_data:
+                    minimal_data["metadata"] = card_data["metadata"]
+
+                agent_card = AgentCard(**minimal_data)
             
             # Ensure the URL is set correctly
             if not agent_card.url:
@@ -81,7 +102,7 @@ class A2AProtocolHandler:
             logger.error(f"Unexpected error retrieving agent card from {agent_url}: {e}")
             return None
     
-    async def submit_task(self, agent_url: str, task_request: TaskRequest) -> Optional[Dict[str, Any]]:
+    async def submit_task(self, agent_url: str, task_request: TaskRequest, agent_card: Optional[AgentCard] = None) -> Optional[Dict[str, Any]]:
         """
         Submit a task to an agent.
         
@@ -100,12 +121,59 @@ class A2AProtocolHandler:
             agent_url = agent_url.rstrip('/')
             
             # Construct task submission URL
-            task_url = f"{agent_url}/api/tasks"
+            # Try to use A2A protocol endpoint from agent card if available
+            if agent_card and hasattr(agent_card, 'protocols') and agent_card.protocols:
+                a2a_protocol = agent_card.protocols.get('a2a', {})
+                if a2a_protocol.get('endpoint'):
+                    task_url = a2a_protocol['endpoint']
+                else:
+                    task_url = f"{agent_url}/api/tasks"
+            else:
+                task_url = f"{agent_url}/api/tasks"
             
             logger.debug(f"Submitting task to: {task_url}")
             
-            # Prepare request data
-            request_data = task_request.dict()
+            # Prepare A2A protocol request
+            import uuid
+            from datetime import datetime
+
+            # Generate correlation ID for this request
+            correlation_id = str(uuid.uuid4())
+
+            # Convert datetime objects to ISO format strings
+            def process_data(data):
+                if isinstance(data, dict):
+                    return {k: process_data(v) for k, v in data.items()}
+                elif isinstance(data, list):
+                    return [process_data(item) for item in data]
+                elif hasattr(data, 'isoformat'):  # datetime object
+                    return data.isoformat()
+                elif hasattr(data, 'dict'):  # Pydantic model
+                    return process_data(data.dict())
+                else:
+                    return data
+
+            # Convert TaskRequest to A2A protocol format
+            task_data = process_data(task_request.dict())
+
+            # Create A2A protocol request
+            request_data = {
+                "a2a_protocol": {
+                    "version": "1.0",
+                    "message_type": "task_request",
+                    "source_agent": "jeecg-a2a-platform",
+                    "target_agent": "codegen-expert",
+                    "correlation_id": correlation_id,
+                    "timestamp": datetime.utcnow().isoformat()
+                },
+                "payload": {
+                    "task_id": str(uuid.uuid4()),  # Generate a task ID
+                    "message": task_data["message"],
+                    "metadata": task_data.get("metadata", {}),
+                    "context_id": task_data.get("context_id"),
+                    "session_id": task_data.get("session_id")
+                }
+            }
             
             response = await self.client.post(
                 task_url,

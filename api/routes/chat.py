@@ -81,11 +81,27 @@ async def agents_management(request: Request):
     """
     try:
         from core.platform import platform
-        
+
         # Get current agents
-        agents = await platform.list_agents()
+        agents_list = await platform.list_agents()
         registry_stats = platform.agent_registry.get_registry_stats()
-        
+
+        # Convert AgentCard objects to dictionaries for template compatibility
+        agents = []
+        for agent in agents_list:
+            agent_dict = {
+                "name": agent.name,
+                "description": agent.description,
+                "url": agent.url,
+                "provider": agent.provider,
+                "version": agent.version,
+                "capabilities": agent.capabilities or [],
+                "status": agent.status if isinstance(agent.status, str) else agent.status.get("state", "unknown") if isinstance(agent.status, dict) else "unknown",
+                "last_seen": agent.last_seen,
+                "metadata": agent.metadata or {}
+            }
+            agents.append(agent_dict)
+
         context = {
             "request": request,
             "platform_name": settings.PLATFORM_NAME,
@@ -93,7 +109,7 @@ async def agents_management(request: Request):
             "registry_stats": registry_stats,
             "api_base_url": f"http://{settings.HOST}:{settings.PORT}/api"
         }
-        
+
         return templates.TemplateResponse("agents.html", context)
         
     except Exception as e:

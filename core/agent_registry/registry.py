@@ -262,8 +262,16 @@ class AgentRegistry:
     
     def get_registry_stats(self) -> Dict:
         """Get registry statistics."""
-        active_agents = sum(1 for agent in self.agents.values() if agent.status == "active")
-        unhealthy_agents = sum(1 for agent in self.agents.values() if agent.status == "unhealthy")
+        def get_agent_status(agent):
+            if isinstance(agent.status, str):
+                return agent.status
+            elif isinstance(agent.status, dict):
+                return agent.status.get("state", "unknown")
+            else:
+                return "unknown"
+
+        active_agents = sum(1 for agent in self.agents.values() if get_agent_status(agent) == "active")
+        unhealthy_agents = sum(1 for agent in self.agents.values() if get_agent_status(agent) == "unhealthy")
         
         return {
             "total_agents": len(self.agents),
@@ -275,10 +283,15 @@ class AgentRegistry:
     def _get_capability_stats(self) -> Dict[str, int]:
         """Get statistics about agent capabilities."""
         capability_counts = {}
-        
+
         for agent_card in self.agents.values():
-            for capability in agent_card.capabilities:
-                name = capability.name
-                capability_counts[name] = capability_counts.get(name, 0) + 1
-        
+            if agent_card.capabilities:
+                for capability in agent_card.capabilities:
+                    # Handle both dict and object formats
+                    if isinstance(capability, dict):
+                        name = capability.get('name', 'unknown')
+                    else:
+                        name = getattr(capability, 'name', 'unknown')
+                    capability_counts[name] = capability_counts.get(name, 0) + 1
+
         return capability_counts

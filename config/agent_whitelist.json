@@ -2,16 +2,8 @@
   "agents": {
     "http://127.0.0.1:8888": {
       "name": "CodeGen Expert",
-      "description": "JeecgBoot代码生成专家",
-      "trusted": true,
+      "description": "JeecgBoot 代码生成专家 Agent，支持完整的 CRUD 代码生成工作流",
+      "trusted": false,
       "auto_approved": true,
-      "created_at": "2025-08-07T00:00:00Z"
-    }
-  },
-  "blocked": [],
-  "settings": {
-    "auto_approve_localhost": true,
-    "require_authentication": false,
-    "max_agents": 100
-  }
-}
+      "created_at": "",
+      "last_seen": 

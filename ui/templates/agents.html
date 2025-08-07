@@ -73,46 +73,46 @@
                             {% for agent in agents %}
                             <tr>
                                 <td>
-                                    <strong>{{ agent.name }}</strong>
-                                    {% if agent.description %}
-                                    <br><small class="text-muted">{{ agent.description[:100] }}{% if agent.description|length > 100 %}...{% endif %}</small>
+                                    <strong>{{ agent['name'] }}</strong>
+                                    {% if agent['description'] %}
+                                    <br><small class="text-muted">{{ agent['description'][:100] }}{% if agent['description']|length > 100 %}...{% endif %}</small>
                                     {% endif %}
                                 </td>
                                 <td>
-                                    <a href="{{ agent.url }}" target="_blank" class="text-decoration-none">
-                                        {{ agent.url }}
+                                    <a href="{{ agent['url'] }}" target="_blank" class="text-decoration-none">
+                                        {{ agent['url'] }}
                                         <i class="bi bi-box-arrow-up-right"></i>
                                     </a>
                                 </td>
                                 <td>
-                                    {% if agent.status == 'active' %}
+                                    {% if agent['status'] == 'active' %}
                                     <span class="badge bg-success">Active</span>
-                                    {% elif agent.status == 'unhealthy' %}
+                                    {% elif agent['status'] == 'unhealthy' %}
                                     <span class="badge bg-warning">Unhealthy</span>
                                     {% else %}
-                                    <span class="badge bg-secondary">{{ agent.status|title }}</span>
+                                    <span class="badge bg-secondary">{{ agent['status']|title }}</span>
                                     {% endif %}
                                 </td>
                                 <td>
-                                    {% for capability in agent.capabilities[:3] %}
-                                    <span class="badge bg-light text-dark me-1">{{ capability.name }}</span>
+                                    {% for capability in agent['capabilities'][:3] %}
+                                    <span class="badge bg-light text-dark me-1">{{ capability['name'] if capability is mapping else capability }}</span>
                                     {% endfor %}
-                                    {% if agent.capabilities|length > 3 %}
-                                    <span class="badge bg-secondary">+{{ agent.capabilities|length - 3 }} more</span>
+                                    {% if agent['capabilities']|length > 3 %}
+                                    <span class="badge bg-secondary">+{{ agent['capabilities']|length - 3 }} more</span>
                                     {% endif %}
                                 </td>
                                 <td>
-                                    <small>{{ agent.last_seen.strftime('%Y-%m-%d %H:%M:%S') }}</small>
+                                    <small>{{ agent['last_seen'].strftime('%Y-%m-%d %H:%M:%S') if agent['last_seen'] else 'Unknown' }}</small>
                                 </td>
                                 <td>
                                     <div class="btn-group btn-group-sm">
-                                        <button class="btn btn-outline-primary" onclick="checkAgentHealth('{{ agent.url }}')">
+                                        <button class="btn btn-outline-primary" onclick="checkAgentHealth('{{ agent['url'] }}')">
                                             <i class="bi bi-heart-pulse"></i>
                                         </button>
-                                        <button class="btn btn-outline-info" onclick="viewAgentDetails('{{ agent.url }}')">
+                                        <button class="btn btn-outline-info" onclick="viewAgentDetails('{{ agent['url'] }}')">
                                             <i class="bi bi-eye"></i>
                                         </button>
-                                        <button class="btn btn-outline-danger" onclick="unregisterAgent('{{ agent.url }}')">
+                                        <button class="btn btn-outline-danger" onclick="unregisterAgent('{{ agent['url'] }}')">
                                             <i class="bi bi-trash"></i>
                                         </button>
                                     </div>

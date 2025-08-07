@@ -126,25 +126,29 @@ class Authentication(BaseModel):
 class AgentCard(BaseModel):
     """
     Agent Card - The digital business card for an A2A agent.
-    
+
     This follows the A2A specification for agent discovery and capability advertisement.
     """
     name: str
     description: Optional[str] = None
     url: str
-    provider: Optional[Provider] = None
+    provider: Optional[Dict[str, Any]] = None
     version: str = "1.0.0"
     documentation_url: Optional[str] = None
-    capabilities: List[Capability] = Field(default_factory=list)
-    authentication: Optional[Authentication] = None
+    capabilities: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
+    authentication: Optional[Dict[str, Any]] = None
     default_input_modes: List[str] = Field(default_factory=lambda: ["text/plain"])
     default_output_modes: List[str] = Field(default_factory=lambda: ["text/plain"])
-    metadata: Dict[str, Any] = Field(default_factory=dict)
-    
+    metadata: Optional[Dict[str, Any]] = Field(default_factory=dict)
+
     # Health and status information
-    status: str = "active"
+    status: Optional[Union[str, Dict[str, Any]]] = "active"
     last_seen: datetime = Field(default_factory=datetime.utcnow)
     health_check_url: Optional[str] = None
+
+    # Allow extra fields from the agent response
+    class Config:
+        extra = "allow"
     
     def add_capability(self, name: str, description: str, 
                       input_types: List[str] = None, 

@@ -36,62 +36,44 @@ class TaskScheduler:
         """Initialize the task scheduler."""
         self.agent_registry = agent_registry
         self.protocol_handler = A2AProtocolHandler(timeout=settings.AGENT_TIMEOUT)
-        
+
         # Task management
         self.active_tasks: Dict[str, Task] = {}
-        self.task_queue: asyncio.Queue = asyncio.Queue(maxsize=settings.MAX_CONCURRENT_TASKS)
         self.completed_tasks_count = 0
         self.failed_tasks_count = 0
-        
+
         # Agent load tracking
         self.agent_loads: Dict[str, int] = {}  # agent_id -> current task count
-        
+
         # Background task management
         self._running = False
-        self._worker_tasks: List[asyncio.Task] = []
-        
+
         logger.info("Task Scheduler initialized")
     
     async def start(self):
-        """Start the task scheduler and worker tasks."""
+        """Start the task scheduler."""
         if self._running:
             return
-        
+
         self._running = True
-        
-        # Start worker tasks for processing the queue
-        num_workers = min(10, settings.MAX_CONCURRENT_TASKS // 10 + 1)
-        for i in range(num_workers):
-            worker_task = asyncio.create_task(self._worker_loop(f"worker-{i}"))
-            self._worker_tasks.append(worker_task)
-        
-        logger.info(f"Task Scheduler started with {num_workers} workers")
+        logger.info("Task Scheduler started")
     
     async def stop(self):
         """Stop the task scheduler and cleanup resources."""
         if not self._running:
             return
-        
+
         self._running = False
-        
-        # Cancel worker tasks
-        for task in self._worker_tasks:
-            task.cancel()
-        
-        # Wait for workers to finish
-        if self._worker_tasks:
-            await asyncio.gather(*self._worker_tasks, return_exceptions=True)
-        
         await self.protocol_handler.close()
         logger.info("Task Scheduler stopped")
     
     async def submit_task(self, task: Task) -> str:
         """
         Submit a task for execution.
-        
+
         Args:
             task: Task to execute
-            
+
         Returns:
             Task ID
         """
@@ -99,19 +81,19 @@ class TaskScheduler:
             # Generate task ID if not provided
             if not task.id:
                 task.id = str(uuid.uuid4())
-            
+
             # Update task status
             task.update_status(TaskState.SUBMITTED, "Task submitted to scheduler")
-            
+
             # Add to active tasks
             self.active_tasks[task.id] = task
-            
-            # Add to processing queue
-            await self.task_queue.put(task)
-            
+
+            # Process task immediately (simplified approach)
+            asyncio.create_task(self._process_task(task))
+
             logger.info(f"Task {task.id} submitted to scheduler")
             return task.id
-            
+
         except Exception as e:
             logger.error(f"Error submitting task: {e}")
             raise
@@ -152,31 +134,7 @@ class TaskScheduler:
             logger.error(f"Error cancelling task {task_id}: {e}")
             return False
     
-    async def _worker_loop(self, worker_name: str):
-        """Worker loop for processing tasks from the queue."""
-        logger.debug(f"Worker {worker_name} started")
-        
-        while self._running:
-            try:
-                # Get task from queue with timeout
-                task = await asyncio.wait_for(self.task_queue.get(), timeout=1.0)
-                
-                # Process the task
-                await self._process_task(task)
-                
-                # Mark task as done in queue
-                self.task_queue.task_done()
-                
-            except asyncio.TimeoutError:
-                # No task available, continue
-                continue
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.error(f"Error in worker {worker_name}: {e}")
-                await asyncio.sleep(1)
-        
-        logger.debug(f"Worker {worker_name} stopped")
+
     
     async def _process_task(self, task: Task):
         """
@@ -232,7 +190,15 @@ class TaskScheduler:
             agents = await self.agent_registry.list_agents()
             
             # Filter active agents
-            active_agents = [agent for agent in agents if agent.status == "active"]
+            def is_agent_active(agent):
+                if isinstance(agent.status, str):
+                    return agent.status == "active"
+                elif isinstance(agent.status, dict):
+                    return agent.status.get("state") == "active" or agent.status.get("health") == "healthy"
+                else:
+                    return True  # Default to active if status format is unknown
+
+            active_agents = [agent for agent in agents if is_agent_active(agent)]
             
             if not active_agents:
                 logger.warning("No active agents available")
@@ -288,7 +254,7 @@ class TaskScheduler:
             )
             
             # Submit task to agent
-            result = await self.protocol_handler.submit_task(agent_card.url, task_request)
+            result = await self.protocol_handler.submit_task(agent_card.url, task_request, agent_card)
             
             if result:
                 logger.info(f"Task {task.id} successfully submitted to agent {agent_card.name}")
@@ -365,9 +331,8 @@ class TaskScheduler:
         """Get scheduler statistics."""
         return {
             "active_tasks": len(self.active_tasks),
-            "queue_size": self.task_queue.qsize(),
             "completed_tasks": self.completed_tasks_count,
             "failed_tasks": self.failed_tasks_count,
             "agent_loads": dict(self.agent_loads),
-            "worker_count": len(self._worker_tasks)
+            "worker_count": 0  # Simplified scheduler without workers
         }

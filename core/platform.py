@@ -134,9 +134,9 @@ class A2APlatform:
     
     # Public API methods
     
-    async def register_agent(self, agent_url: str) -> bool:
+    async def register_agent(self, agent_url: str, force_refresh: bool = False) -> bool:
         """Register a new agent with the platform."""
-        return await self.agent_registry.register_agent(agent_url)
+        return await self.agent_registry.register_agent(agent_url, force_refresh)
     
     async def unregister_agent(self, agent_id: str) -> bool:
         """Unregister an agent from the platform."""
