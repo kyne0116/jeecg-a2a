@@ -47,6 +47,20 @@ class Settings(BaseSettings):
         default=["http://localhost:3000", "http://localhost:9000"],
         env="CORS_ORIGINS"
     )
+
+    # Dynamic Agent Management Configuration
+    ENABLE_DYNAMIC_CORS: bool = Field(default=True, env="ENABLE_DYNAMIC_CORS")
+    AGENT_WHITELIST_ENABLED: bool = Field(default=True, env="AGENT_WHITELIST_ENABLED")
+    AGENT_WHITELIST_FILE: str = Field(default="./config/agent_whitelist.json", env="AGENT_WHITELIST_FILE")
+    AGENT_AUTO_DISCOVERY: bool = Field(default=False, env="AGENT_AUTO_DISCOVERY")
+    AGENT_REGISTRATION_TOKEN: Optional[str] = Field(default=None, env="AGENT_REGISTRATION_TOKEN")
+
+    # Network Security Configuration
+    ALLOWED_NETWORKS: List[str] = Field(
+        default=["127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"],
+        env="ALLOWED_NETWORKS"
+    )
+    BLOCK_PUBLIC_AGENTS: bool = Field(default=True, env="BLOCK_PUBLIC_AGENTS")
     
     # Monitoring Configuration
     ENABLE_METRICS: bool = Field(default=True, env="ENABLE_METRICS")

@@ -5,10 +5,12 @@ Agent management endpoints for JEECG A2A Platform.
 import logging
 from typing import List
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
+from typing import Dict, Any
 
 from core.platform import platform
 from core.protocol.models import AgentCard, AgentRegistrationRequest, AgentRegistrationResponse
+from core.security.cors_manager import cors_manager
 
 logger = logging.getLogger(__name__)
 
@@ -16,38 +18,66 @@ router = APIRouter()
 
 
 @router.post("/register", response_model=AgentRegistrationResponse)
-async def register_agent(request: AgentRegistrationRequest):
+async def register_agent(request: AgentRegistrationRequest, http_request: Request):
     """
     Register a new agent with the platform.
-    
+
+    Enhanced with security validation and dynamic CORS management.
+
     Args:
         request: Agent registration request containing URL and options
-        
+        http_request: HTTP request object for security validation
+
     Returns:
         Registration response with success status and agent information
     """
     try:
         logger.info(f"Registering agent: {request.url}")
-        
-        # Attempt to register the agent
-        success = await platform.register_agent(request.url)
-        
+
+        # 1. 获取agent卡片进行预验证
+        agent_card = await platform.agent_registry.protocol_handler.get_agent_card(request.url)
+        if not agent_card:
+            return AgentRegistrationResponse(
+                success=False,
+                agent_id="",
+                message="Failed to retrieve agent card from URL"
+            )
+
+        # 2. 安全验证
+        agent_card_dict = agent_card.dict() if hasattr(agent_card, 'dict') else agent_card.__dict__
+        validation_result = cors_manager.validate_agent_registration(request.url, agent_card_dict)
+
+        if not validation_result[0]:
+            return AgentRegistrationResponse(
+                success=False,
+                agent_id="",
+                message=f"Security validation failed: {validation_result[1]}"
+            )
+
+        # 3. 注册agent
+        success = await platform.register_agent(request.url, request.force_refresh)
+
         if success:
-            # Get the registered agent card
-            agent_card = await platform.agent_registry.get_agent_by_url(request.url)
+            # 4. 添加到CORS白名单
+            cors_manager.add_agent_to_whitelist(request.url, agent_card_dict)
+
+            # 5. 获取注册的agent信息
+            registered_agent = await platform.agent_registry.get_agent_by_url(request.url)
             agent_id = platform.agent_registry._url_to_id(request.url)
-            
+
+            logger.info(f"Successfully registered and whitelisted agent: {request.url}")
+
             return AgentRegistrationResponse(
                 success=True,
                 agent_id=agent_id,
-                message="Agent registered successfully",
-                agent_card=agent_card
+                message="Agent registered successfully and added to whitelist",
+                agent_card=registered_agent
             )
         else:
             return AgentRegistrationResponse(
                 success=False,
                 agent_id="",
-                message="Failed to register agent - could not retrieve agent card or validation failed"
+                message="Failed to register agent - validation or connection failed"
             )
             
     except Exception as e:
@@ -55,7 +85,7 @@ async def register_agent(request: AgentRegistrationRequest):
         raise HTTPException(status_code=500, detail=f"Registration failed: {str(e)}")
 
 
-@router.delete("/{agent_id}")
+@router.delete("/unregister/{agent_id}")
 async def unregister_agent(agent_id: str):
     """
     Unregister an agent from the platform.
@@ -98,7 +128,7 @@ async def list_agents():
         raise HTTPException(status_code=500, detail=f"Failed to list agents: {str(e)}")
 
 
-@router.get("/{agent_id}", response_model=AgentCard)
+@router.get("/info/{agent_id}", response_model=AgentCard)
 async def get_agent(agent_id: str):
     """
     Get information about a specific agent.
@@ -200,3 +230,76 @@ async def get_registry_statistics():
     except Exception as e:
         logger.error(f"Error getting registry statistics: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get statistics: {str(e)}")
+
+
+@router.get("/whitelist")
+async def get_agent_whitelist():
+    """获取agent白名单"""
+    try:
+        return {
+            "agents": cors_manager.agent_whitelist,
+            "blocked": list(cors_manager.blocked_origins),
+            "allowed_origins": cors_manager.get_allowed_origins()
+        }
+    except Exception as e:
+        logger.error(f"Error getting whitelist: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/whitelist/add")
+async def add_to_whitelist(data: Dict[str, Any]):
+    """手动添加agent到白名单"""
+    try:
+        url = data.get("url")
+        if not url:
+            raise HTTPException(status_code=400, detail="URL is required")
+
+        agent_info = data.get("agent_info", {})
+        success = cors_manager.add_agent_to_whitelist(url, agent_info)
+
+        if success:
+            return {"success": True, "message": f"Added {url} to whitelist"}
+        else:
+            return {"success": False, "message": "Failed to add to whitelist"}
+
+    except Exception as e:
+        logger.error(f"Error adding to whitelist: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/whitelist/{agent_url:path}")
+async def remove_from_whitelist(agent_url: str):
+    """从白名单中移除agent"""
+    try:
+        success = cors_manager.remove_agent_from_whitelist(agent_url)
+
+        if success:
+            return {"success": True, "message": f"Removed {agent_url} from whitelist"}
+        else:
+            return {"success": False, "message": "Agent not found in whitelist"}
+
+    except Exception as e:
+        logger.error(f"Error removing from whitelist: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/block")
+async def block_agent(data: Dict[str, Any]):
+    """阻止agent"""
+    try:
+        url = data.get("url")
+        reason = data.get("reason", "Manual block")
+
+        if not url:
+            raise HTTPException(status_code=400, detail="URL is required")
+
+        success = cors_manager.block_agent(url, reason)
+
+        if success:
+            return {"success": True, "message": f"Blocked {url}"}
+        else:
+            return {"success": False, "message": "Failed to block agent"}
+
+    except Exception as e:
+        logger.error(f"Error blocking agent: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

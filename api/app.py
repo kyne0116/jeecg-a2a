@@ -13,6 +13,8 @@ from fastapi.staticfiles import StaticFiles
 
 from config.settings import settings
 from core.platform import platform
+from core.security.middleware import SecurityMiddleware, AgentAuthMiddleware
+from core.security.cors_manager import cors_manager
 
 from .routes import agents, chat, health, tasks, websocket
 
@@ -52,10 +54,14 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Add CORS middleware
+# Add Security Middleware (must be added first) - Temporarily disabled for testing
+# app.add_middleware(SecurityMiddleware)
+# app.add_middleware(AgentAuthMiddleware)
+
+# Add CORS middleware with dynamic origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
+    allow_origins=cors_manager.get_allowed_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
