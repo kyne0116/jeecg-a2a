@@ -105,8 +105,23 @@ class CORSManager:
         try:
             whitelist_file = Path(settings.AGENT_WHITELIST_FILE)
             
+            # 深度复制并将可能包含 datetime 的字段序列化为字符串
+            def serialize(obj):
+                if isinstance(obj, dict):
+                    return {k: serialize(v) for k, v in obj.items()}
+                elif isinstance(obj, list):
+                    return [serialize(v) for v in obj]
+                else:
+                    try:
+                        from datetime import datetime
+                        if isinstance(obj, datetime):
+                            return obj.isoformat()
+                    except Exception:
+                        pass
+                    return obj
+
             config = {
-                "agents": self.agent_whitelist,
+                "agents": serialize(self.agent_whitelist),
                 "blocked": list(self.blocked_origins),
                 "settings": {
                     "auto_approve_localhost": True,
@@ -114,7 +129,7 @@ class CORSManager:
                     "max_agents": 100
                 }
             }
-            
+
             with open(whitelist_file, 'w', encoding='utf-8') as f:
                 json.dump(config, f, indent=2, ensure_ascii=False)
             

@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import uuid
+from datetime import datetime
 from typing import Dict, Set
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -17,6 +18,20 @@ from core.protocol.models import Message, Part, PartType, Role, Task, TaskReques
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def serialize_for_json(obj):
+    """Convert objects to JSON-serializable format."""
+    if isinstance(obj, dict):
+        return {k: serialize_for_json(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [serialize_for_json(item) for item in obj]
+    elif isinstance(obj, datetime):
+        return obj.isoformat()
+    elif hasattr(obj, 'dict'):  # Pydantic model
+        return serialize_for_json(obj.dict())
+    else:
+        return obj
 
 # Connection management
 class ConnectionManager:
@@ -54,7 +69,9 @@ class ConnectionManager:
         """Send a message to a specific connection."""
         if connection_id in self.active_connections:
             try:
-                await self.active_connections[connection_id].send_text(json.dumps(message))
+                # Serialize message to handle datetime objects
+                serialized_message = serialize_for_json(message)
+                await self.active_connections[connection_id].send_text(json.dumps(serialized_message))
             except Exception as e:
                 logger.error(f"Error sending message to {connection_id}: {e}")
                 self.disconnect(connection_id)
@@ -172,15 +189,9 @@ async def handle_chat_message(message_data: dict, connection_id: str, session_id
         if not content:
             return
         
-        # Echo user message
-        await manager.send_session_message({
-            "type": "message",
-            "role": "user",
-            "content": content,
-            "timestamp": message_data.get("timestamp"),
-            "session_id": session_id
-        }, session_id)
-        
+        # NOTE: 不再回显用户消息，避免前端已添加本地消息后再次收到服务端回传而重复显示
+        # （如需广播到同会话的其他连接，可在此按需实现定向发送，排除当前connection_id）
+
         # Create A2A task
         part = Part(type=PartType.TEXT, content=content)
         message = Message(role=Role.USER, parts=[part])
@@ -199,9 +210,48 @@ async def handle_chat_message(message_data: dict, connection_id: str, session_id
             metadata=task_request.metadata
         )
         
+        # Check if there are any available agents first
+        agents = await platform.list_agents()
+        active_agents = [agent for agent in agents if agent.status == "active"]
+
+        if not active_agents:
+            # Try to auto-register default agent if none available
+            try:
+                default_agent_url = "http://127.0.0.1:8888"
+                registration_result = await platform.register_agent(default_agent_url)
+
+                if registration_result.success:
+                    await manager.send_session_message({
+                        "type": "message",
+                        "role": "system",
+                        "content": f"✅ 已自动注册默认代理: {registration_result.agent_card.name}",
+                        "session_id": session_id,
+                        "timestamp": datetime.now().isoformat()
+                    }, session_id)
+                else:
+                    # No agents available - provide helpful response
+                    await manager.send_session_message({
+                        "type": "message",
+                        "role": "system",
+                        "content": "⚠️ 当前没有可用的代理服务。请确保至少有一个代理已注册并处于活跃状态。\n\n您可以：\n• 检查代理服务是否正在运行 (http://127.0.0.1:8888)\n• 访问 /chat/agents 页面查看代理状态\n• 手动注册新的代理服务",
+                        "session_id": session_id,
+                        "timestamp": datetime.now().isoformat()
+                    }, session_id)
+                    return
+            except Exception as e:
+                logger.error(f"Failed to auto-register default agent: {e}")
+                await manager.send_session_message({
+                    "type": "message",
+                    "role": "system",
+                    "content": "⚠️ 当前没有可用的代理服务，且自动注册失败。请手动启动代理服务或访问 /chat/agents 页面进行配置。",
+                    "session_id": session_id,
+                    "timestamp": datetime.now().isoformat()
+                }, session_id)
+                return
+
         # Submit task
         task_id = await platform.submit_task(task)
-        
+
         # Send task submitted notification
         await manager.send_session_message({
             "type": "task_submitted",
@@ -209,7 +259,7 @@ async def handle_chat_message(message_data: dict, connection_id: str, session_id
             "message": "Task submitted for processing",
             "session_id": session_id
         }, session_id)
-        
+
         # Monitor task progress
         asyncio.create_task(monitor_task_progress(task_id, session_id))
         
@@ -287,37 +337,45 @@ async def handle_ping(message_data: dict, connection_id: str, session_id: str):
 async def monitor_task_progress(task_id: str, session_id: str):
     """Monitor task progress and send updates via WebSocket."""
     try:
+        sent_messages = set()  # Track sent messages to prevent duplicates
+
         while True:
             status = await platform.get_task_status(task_id)
-            
+
             if not status:
                 break
-            
-            # Send status update
+
+            # Send status update (serialize datetime objects)
+            status_data = serialize_for_json(status.dict())
             await manager.send_session_message({
                 "type": "task_update",
                 "task_id": task_id,
-                "status": status.dict(),
+                "status": status_data,
                 "session_id": session_id
             }, session_id)
-            
+
             # Check if task is complete
             if status.state in ["completed", "failed", "cancelled"]:
                 # Get full task for final response
                 task = platform.task_scheduler.active_tasks.get(task_id)
                 if task and task.history:
-                    # Send agent response
+                    # Send agent response (only new messages)
                     for msg in task.history:
                         if msg.role == Role.AGENT:
                             for part in msg.parts:
                                 if part.type == PartType.TEXT:
-                                    await manager.send_session_message({
-                                        "type": "message",
-                                        "role": "agent",
-                                        "content": part.content,
-                                        "task_id": task_id,
-                                        "session_id": session_id
-                                    }, session_id)
+                                    # Create unique message identifier
+                                    msg_id = f"{task_id}-{msg.role}-{part.content[:50]}"
+                                    if msg_id not in sent_messages:
+                                        await manager.send_session_message({
+                                            "type": "message",
+                                            "role": "agent",
+                                            "content": part.content,
+                                            "task_id": task_id,
+                                            "session_id": session_id,
+                                            "timestamp": status.updated_at.isoformat() if status.updated_at else None
+                                        }, session_id)
+                                        sent_messages.add(msg_id)
                 break
             
             # Wait before next check

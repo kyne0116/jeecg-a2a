@@ -132,6 +132,15 @@
                             <div class="message-time">System message</div>
                         </div>
                     </div>
+                    <div class="message agent">
+                        <div class="message-content">
+                            <div>我是您的AI助手，可以帮您处理各种任务。您可以：</div>
+                            <div>• 直接输入问题或需求</div>
+                            <div>• 点击右侧的快速操作按钮</div>
+                            <div>• 尝试问我"你能做什么？"</div>
+                            <div class="message-time">System message</div>
+                        </div>
+                    </div>
                 </div>
                 
                 <!-- Typing Indicator -->
@@ -188,14 +197,20 @@
             </div>
             <div class="card-body">
                 <div class="d-grid gap-2">
-                    <button class="btn btn-outline-primary btn-sm" onclick="sendQuickMessage('List all available agents')">
-                        <i class="bi bi-people"></i> List Agents
+                    <button class="btn btn-outline-primary btn-sm" onclick="sendQuickMessage('介绍一下你能干什么')">
+                        <i class="bi bi-question-circle"></i> 你能做什么？
                     </button>
-                    <button class="btn btn-outline-primary btn-sm" onclick="sendQuickMessage('What can you help me with?')">
-                        <i class="bi bi-question-circle"></i> Get Help
+                    <button class="btn btn-outline-primary btn-sm" onclick="sendQuickMessage('List all available agents')">
+                        <i class="bi bi-people"></i> 查看所有代理
                     </button>
                     <button class="btn btn-outline-primary btn-sm" onclick="sendQuickMessage('Show platform status')">
-                        <i class="bi bi-speedometer2"></i> Platform Status
+                        <i class="bi bi-speedometer2"></i> 平台状态
+                    </button>
+                    <button class="btn btn-outline-success btn-sm" onclick="sendQuickMessage('帮我写一个Python函数')">
+                        <i class="bi bi-code-slash"></i> 代码生成示例
+                    </button>
+                    <button class="btn btn-outline-warning btn-sm" onclick="checkAgentStatus()">
+                        <i class="bi bi-activity"></i> 检查代理状态
                     </button>
                 </div>
             </div>
@@ -224,6 +239,11 @@
     let messageCount = 0;
     let reconnectAttempts = 0;
     const maxReconnectAttempts = 5;
+
+    // Message tracking to prevent duplicates
+    let displayedMessages = new Set();
+    let lastTaskId = null;
+    const MAX_TRACKED_MESSAGES = 100; // Prevent memory leaks
     
     // Initialize chat
     document.addEventListener('DOMContentLoaded', function() {
@@ -278,31 +298,68 @@
     
     function handleWebSocketMessage(data) {
         console.log('Received message:', data);
-        
+
         switch (data.type) {
             case 'system':
+                // Handle system connection info
                 if (data.connection_id) {
                     document.getElementById('connectionId').textContent = data.connection_id;
                 }
+                // Handle system messages (like no agents available)
+                if (data.message) {
+                    addMessage(data.message, 'system');
+                    showTypingIndicator(false);
+                }
                 break;
-                
+
             case 'message':
-                addMessage(data.content, data.role, data.timestamp);
+                // Create unique message ID to prevent duplicates
+                const contentHash = data.content.substring(0, 100); // Use first 100 chars for similarity check
+                const messageId = `${data.role}-${contentHash}-${data.timestamp || Date.now()}`;
+
+                // Also check for similar content to prevent near-duplicates
+                const isDuplicate = Array.from(displayedMessages).some(existingId => {
+                    const existingContent = existingId.split('-')[1];
+                    return existingContent === contentHash;
+                });
+
+                if (!displayedMessages.has(messageId) && !isDuplicate) {
+                    addMessage(data.content, data.role, data.timestamp);
+                    displayedMessages.add(messageId);
+
+                    // Clean up old messages to prevent memory leaks
+                    if (displayedMessages.size > MAX_TRACKED_MESSAGES) {
+                        const oldMessages = Array.from(displayedMessages).slice(0, 20);
+                        oldMessages.forEach(msg => displayedMessages.delete(msg));
+                    }
+
+                    // Hide typing indicator when agent responds
+                    if (data.role === 'agent') {
+                        showTypingIndicator(false);
+                    }
+                } else {
+                    console.log('Duplicate message prevented:', data.content.substring(0, 50) + '...');
+                }
                 break;
-                
+
             case 'task_submitted':
+                lastTaskId = data.task_id;
                 showTypingIndicator(true);
                 break;
-                
+
             case 'task_update':
                 if (data.status.state === 'completed' || data.status.state === 'failed') {
                     showTypingIndicator(false);
                 }
                 break;
-                
+
             case 'error':
-                addMessage(`Error: ${data.message}`, 'system');
+                addMessage(`❌ 错误: ${data.message}`, 'system');
                 showTypingIndicator(false);
+                break;
+
+            case 'agent_list':
+                handleAgentListResponse(data.agents);
                 break;
         }
     }
@@ -312,16 +369,16 @@
         const message = input.value.trim();
         
         if (message && ws && ws.readyState === WebSocket.OPEN) {
-            // Add user message to chat
+            // Add user message locally (server does NOT echo user back to avoid duplicates)
             addMessage(message, 'user');
-            
+
             // Send via WebSocket
             ws.send(JSON.stringify({
                 type: 'chat',
                 content: message,
                 timestamp: new Date().toISOString()
             }));
-            
+
             input.value = '';
             messageCount++;
             document.getElementById('messageCount').textContent = messageCount;
@@ -332,21 +389,81 @@
         document.getElementById('messageInput').value = message;
         sendMessage();
     }
+
+    function checkAgentStatus() {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+                type: 'agent_list',
+                timestamp: new Date().toISOString()
+            }));
+        }
+    }
+
+    function handleAgentListResponse(agents) {
+        let statusMessage = "📊 **代理状态报告**\n\n";
+
+        if (!agents || agents.length === 0) {
+            statusMessage += "❌ 当前没有注册的代理\n\n";
+            statusMessage += "**建议操作：**\n";
+            statusMessage += "• 启动代理服务 (http://127.0.0.1:8888)\n";
+            statusMessage += "• 访问 /chat/agents 页面进行配置";
+        } else {
+            statusMessage += `✅ 发现 ${agents.length} 个代理：\n\n`;
+
+            agents.forEach((agent, index) => {
+                const statusIcon = agent.status === 'active' ? '🟢' : '🔴';
+                statusMessage += `${index + 1}. ${statusIcon} **${agent.name}**\n`;
+                statusMessage += `   📍 URL: ${agent.url}\n`;
+                statusMessage += `   📝 描述: ${agent.description || '无描述'}\n`;
+                statusMessage += `   🔧 状态: ${agent.status}\n`;
+                if (agent.capabilities && agent.capabilities.length > 0) {
+                    statusMessage += `   ⚡ 能力: ${agent.capabilities.join(', ')}\n`;
+                }
+                statusMessage += "\n";
+            });
+        }
+
+        addMessage(statusMessage, 'system');
+    }
     
     function addMessage(content, role, timestamp) {
         const messagesContainer = document.getElementById('chatMessages');
         const messageDiv = document.createElement('div');
         messageDiv.className = `message ${role}`;
-        
+
         const time = timestamp ? new Date(timestamp).toLocaleTimeString() : new Date().toLocaleTimeString();
-        
-        messageDiv.innerHTML = `
-            <div class="message-content">
-                <div>${content}</div>
-                <div class="message-time">${time}</div>
-            </div>
-        `;
-        
+
+        // Create message content container
+        const messageContent = document.createElement('div');
+        messageContent.className = 'message-content';
+
+        // Create content div and safely set text content (prevents HTML injection)
+        const contentDiv = document.createElement('div');
+
+        // For system messages, allow basic formatting but escape HTML
+        if (role === 'system') {
+            // Convert basic markdown-like formatting to HTML safely
+            const formattedContent = content
+                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')  // **bold**
+                .replace(/\*(.*?)\*/g, '<em>$1</em>')              // *italic*
+                .replace(/\n/g, '<br>')                            // line breaks
+                .replace(/•/g, '&bull;');                          // bullet points
+            contentDiv.innerHTML = formattedContent;
+        } else {
+            // For user and agent messages, use textContent to prevent HTML injection
+            contentDiv.textContent = content;
+        }
+
+        // Create time div
+        const timeDiv = document.createElement('div');
+        timeDiv.className = 'message-time';
+        timeDiv.textContent = time;
+
+        // Assemble the message
+        messageContent.appendChild(contentDiv);
+        messageContent.appendChild(timeDiv);
+        messageDiv.appendChild(messageContent);
+
         messagesContainer.appendChild(messageDiv);
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
@@ -354,10 +471,18 @@
     function showTypingIndicator(show) {
         const indicator = document.getElementById('typingIndicator');
         indicator.style.display = show ? 'block' : 'none';
-        
+
         if (show) {
             const messagesContainer = document.getElementById('chatMessages');
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+            // Auto-hide after 30 seconds to prevent stuck indicator
+            setTimeout(() => {
+                if (indicator.style.display === 'block') {
+                    indicator.style.display = 'none';
+                    console.warn('Typing indicator auto-hidden after timeout');
+                }
+            }, 30000);
         }
     }
     
@@ -389,13 +514,24 @@
         messagesContainer.innerHTML = `
             <div class="message agent">
                 <div class="message-content">
-                    <div>Chat cleared. How can I help you?</div>
+                    <div>Welcome to {{ platform_name }}! 🤖</div>
+                    <div class="message-time">System message</div>
+                </div>
+            </div>
+            <div class="message agent">
+                <div class="message-content">
+                    <div>我是您的AI助手，可以帮您处理各种任务。您可以：</div>
+                    <div>• 直接输入问题或需求</div>
+                    <div>• 点击右侧的快速操作按钮</div>
+                    <div>• 尝试问我"你能做什么？"</div>
                     <div class="message-time">System message</div>
                 </div>
             </div>
         `;
         messageCount = 0;
         document.getElementById('messageCount').textContent = messageCount;
+        displayedMessages.clear(); // Clear message tracking
+        showTypingIndicator(false); // Hide typing indicator
     }
     
     function toggleConnection() {
