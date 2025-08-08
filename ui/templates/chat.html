@@ -255,43 +255,60 @@
         return 'session_' + Math.random().toString(36).substr(2, 9);
     }
     
-    function connectWebSocket() {
-        const wsUrl = `ws://{{ request.url.hostname }}:{{ request.url.port }}/ws/chat/${sessionId}`;
+    // Simple message queue when WS is not ready
+    const pendingMessages = [];
 
+    function connectWebSocket() {
         try {
+            const loc = window.location;
+            const scheme = (loc.protocol === 'https:') ? 'wss' : 'ws';
+            const host = loc.host; // includes hostname:port automatically
+            const wsUrl = `${scheme}://${host}/ws/chat/${sessionId}`;
+            console.info('[WS] connecting to', wsUrl);
+
             ws = new WebSocket(wsUrl);
-            
+
             ws.onopen = function(event) {
-                console.log('WebSocket connected');
+                console.info('[WS] connected');
                 updateConnectionStatus(true);
                 reconnectAttempts = 0;
+
+                // flush queued messages
+                while (pendingMessages.length > 0 && ws.readyState === WebSocket.OPEN) {
+                    const m = pendingMessages.shift();
+                    ws.send(m);
+                }
             };
-            
+
             ws.onmessage = function(event) {
-                const data = JSON.parse(event.data);
-                handleWebSocketMessage(data);
+                try {
+                    const data = JSON.parse(event.data);
+                    handleWebSocketMessage(data);
+                } catch (e) {
+                    console.error('[WS] parse error', e, event.data);
+                }
             };
-            
+
             ws.onclose = function(event) {
-                console.log('WebSocket disconnected');
+                console.warn('[WS] disconnected', event.code, event.reason);
                 updateConnectionStatus(false);
-                
-                // Attempt to reconnect
+
+                // Attempt to reconnect with backoff
                 if (reconnectAttempts < maxReconnectAttempts) {
                     setTimeout(() => {
                         reconnectAttempts++;
                         connectWebSocket();
-                    }, 2000 * reconnectAttempts);
+                    }, Math.min(2000 * reconnectAttempts, 15000));
                 }
             };
-            
+
             ws.onerror = function(error) {
-                console.error('WebSocket error:', error);
+                console.error('[WS] error:', error);
                 updateConnectionStatus(false);
             };
-            
+
         } catch (error) {
-            console.error('Failed to create WebSocket:', error);
+            console.error('[WS] failed to create WebSocket:', error);
             updateConnectionStatus(false);
         }
     }
@@ -368,21 +385,32 @@
         const input = document.getElementById('messageInput');
         const message = input.value.trim();
         
-        if (message && ws && ws.readyState === WebSocket.OPEN) {
-            // Add user message locally (server does NOT echo user back to avoid duplicates)
-            addMessage(message, 'user');
+        const payload = JSON.stringify({
+            type: 'chat',
+            content: message,
+            timestamp: new Date().toISOString()
+        });
 
-            // Send via WebSocket
-            ws.send(JSON.stringify({
-                type: 'chat',
-                content: message,
-                timestamp: new Date().toISOString()
-            }));
+        if (!message) return;
 
-            input.value = '';
-            messageCount++;
-            document.getElementById('messageCount').textContent = messageCount;
+        // Add user message locally（更好的用户感知）
+        addMessage(message, 'user');
+
+        // 根据WS状态发送或排队
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(payload);
+        } else {
+            console.warn('[WS] not ready, queue message');
+            pendingMessages.push(payload);
+            // 触发重连
+            if (!ws || ws.readyState === WebSocket.CLOSED) {
+                connectWebSocket();
+            }
         }
+
+        input.value = '';
+        messageCount++;
+        document.getElementById('messageCount').textContent = messageCount;
     }
     
     function sendQuickMessage(message) {

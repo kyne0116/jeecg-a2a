@@ -15,7 +15,7 @@ from typing import Dict, List, Optional, Set
 from config.settings import settings
 from core.agent_registry.registry import AgentRegistry
 from core.protocol.handlers import A2AProtocolHandler
-from core.protocol.models import AgentCard, Task, TaskRequest, TaskState, TaskStatus
+from core.protocol.models import AgentCard, Task, TaskRequest, TaskState, TaskStatus, Role
 
 logger = logging.getLogger(__name__)
 
@@ -255,24 +255,53 @@ class TaskScheduler:
             
             # Submit task to agent
             result = await self.protocol_handler.submit_task(agent_card.url, task_request, agent_card)
-            
+
             if result:
+                # Try to parse agent's immediate response and append to history
+                try:
+                    parsed = self.protocol_handler.parse_agent_task_result(result) if hasattr(self.protocol_handler, 'parse_agent_task_result') else None
+                    if parsed and parsed.get("messages"):
+                        for msg in parsed["messages"]:
+                            # Ensure role and task linkage
+                            try:
+                                if not getattr(msg, 'role', None):
+                                    msg.role = Role.AGENT  # type: ignore
+                                msg.task_id = task.id  # type: ignore
+                                task.add_message(msg)
+                            except Exception:
+                                # Fallback if msg is dict-like
+                                from core.protocol.models import Message, Part, PartType, Role as MsgRole
+                                if isinstance(msg, dict):
+                                    if 'parts' in msg:
+                                        m = Message(**msg)
+                                    else:
+                                        content = msg.get('content') or msg.get('text') or str(msg)
+                                        m = Message(role=MsgRole.AGENT, parts=[Part(type=PartType.TEXT, content=content)])
+                                    m.task_id = task.id
+                                    task.add_message(m)
+                    # If agent returned explicit status, update message in status
+                    status_note = parsed.get("status") if parsed else None
+                    if status_note:
+                        task.update_status(TaskState.IN_PROGRESS, f"Agent responded: {status_note}")
+                except Exception as parse_err:
+                    logger.debug(f"Could not parse agent response for task {task.id}: {parse_err}")
+
                 logger.info(f"Task {task.id} successfully submitted to agent {agent_card.name}")
                 return True
             else:
                 logger.warning(f"Failed to submit task {task.id} to agent {agent_card.name}")
                 return False
-            
+
         except Exception as e:
             logger.error(f"Error executing task {task.id} on agent {agent_card.name}: {e}")
             return False
-        
+
         finally:
             # Decrease agent load
             agent_id = self._get_agent_id(agent_card)
             if agent_id in self.agent_loads:
                 self.agent_loads[agent_id] = max(0, self.agent_loads[agent_id] - 1)
-    
+
     async def _handle_task_failure(self, task: Task, failed_agent: AgentCard):
         """
         Handle task failure with automatic failover.

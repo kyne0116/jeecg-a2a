@@ -6,4 +6,13 @@
       "trusted": false,
       "auto_approved": true,
       "created_at": "",
-      "last_seen": 
+      "last_seen": "2025-08-08T01:32:17.388874"
+    }
+  },
+  "blocked": [],
+  "settings": {
+    "auto_approve_localhost": true,
+    "require_authentication": false,
+    "max_agents": 100
+  }
+}

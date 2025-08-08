@@ -156,7 +156,35 @@ class A2AProtocolHandler:
             # Convert TaskRequest to A2A protocol format
             task_data = process_data(task_request.dict())
 
-            # Create A2A protocol request
+            # Extract plain text from message for maximum agent compatibility
+            def extract_text_message(msg):
+                try:
+                    if isinstance(msg, str):
+                        return msg
+                    if isinstance(msg, dict):
+                        # parts-based structure
+                        parts = msg.get("parts")
+                        if isinstance(parts, list) and parts:
+                            for p in parts:
+                                t = p.get("type") or p.get("mime")
+                                if (t == "text" or t == "text/plain") and isinstance(p.get("content"), str):
+                                    return p.get("content")
+                            # fallback: first string content
+                            for p in parts:
+                                if isinstance(p.get("content"), str):
+                                    return p.get("content")
+                        # simple content fields
+                        for k in ("content", "text", "message"):
+                            if isinstance(msg.get(k), str):
+                                return msg.get(k)
+                    # last resort: stringify
+                    return json.dumps(msg, ensure_ascii=False)
+                except Exception:
+                    return str(msg)
+
+            plain_text = extract_text_message(task_data.get("message"))
+
+            # Create A2A protocol request (use plain text message)
             request_data = {
                 "a2a_protocol": {
                     "version": "1.0",
@@ -168,13 +196,13 @@ class A2AProtocolHandler:
                 },
                 "payload": {
                     "task_id": str(uuid.uuid4()),  # Generate a task ID
-                    "message": task_data["message"],
+                    "message": plain_text,
                     "metadata": task_data.get("metadata", {}),
                     "context_id": task_data.get("context_id"),
                     "session_id": task_data.get("session_id")
                 }
             }
-            
+
             response = await self.client.post(
                 task_url,
                 json=request_data,
@@ -271,13 +299,13 @@ class A2AProtocolHandler:
             task_id=task_id
         )
     
-    def create_file_message(self, file_data: bytes, filename: str, 
+    def create_file_message(self, file_data: bytes, filename: str,
                            role: Role = Role.USER,
                            context_id: Optional[str] = None,
                            task_id: Optional[str] = None) -> Message:
         """Create a file message."""
         part = Part(
-            type=PartType.FILE, 
+            type=PartType.FILE,
             content=file_data,
             metadata={"filename": filename}
         )
@@ -287,14 +315,110 @@ class A2AProtocolHandler:
             context_id=context_id,
             task_id=task_id
         )
-    
+
+    def parse_agent_task_result(self, result: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Best-effort parser to normalize agent task submission responses into
+        platform Messages and status.
+
+        Returns a dict: {"messages": List[Message], "agent_task_id": Optional[str], "status": Optional[str]}
+        """
+        messages: list[Message] = []
+        agent_task_id: Optional[str] = None
+        new_status: Optional[str] = None
+
+        try:
+            if not isinstance(result, dict):
+                # Some agents might return plain text
+                messages.append(self.create_text_message(str(result), role=Role.AGENT))
+                return {"messages": messages, "agent_task_id": None, "status": None}
+
+            def coerce_text(value: Any) -> Optional[str]:
+                if value is None:
+                    return None
+                if isinstance(value, str):
+                    return value
+                # Some agents return nested objects with 'text' field
+                if isinstance(value, dict):
+                    if isinstance(value.get("text"), str):
+                        return value.get("text")
+                    if isinstance(value.get("content"), str):
+                        return value.get("content")
+                return None
+
+            # Common containers
+            container = result.get("payload") if isinstance(result.get("payload"), dict) else result
+            if isinstance(result.get("payload"), dict):
+                agent_task_id = result.get("payload", {}).get("task_id") or result.get("task_id")
+            else:
+                agent_task_id = result.get("task_id")
+
+            # Status normalization
+            status_field = result.get("status") or (container.get("status") if isinstance(container, dict) else None)
+            if isinstance(status_field, dict):
+                new_status = status_field.get("state") or status_field.get("status")
+            elif isinstance(status_field, str):
+                new_status = status_field
+
+            # Handle CodeGen Expert style error_details to produce a friendly text
+            if isinstance(container, dict) and isinstance(container.get("error_details"), dict):
+                ed = container["error_details"]
+                code = ed.get("error_code")
+                msg = ed.get("error_message")
+                tips = ed.get("resolution_suggestions") or []
+                text = f"代理返回错误 [{code}]: {msg}\n建议: " + "; ".join(map(str, tips))
+                messages.append(self.create_text_message(text, role=Role.AGENT))
+
+            # Parse messages list
+            possible_messages = []
+            if isinstance(container, dict):
+                if isinstance(container.get("messages"), list):
+                    possible_messages = container.get("messages")
+                elif isinstance(container.get("message"), list):
+                    possible_messages = container.get("message")
+
+            for itm in possible_messages:
+                try:
+                    if isinstance(itm, dict):
+                        # If already in our structure
+                        if itm.get("parts") and itm.get("role"):
+                            role = Role(itm.get("role")) if itm.get("role") in [r.value for r in Role] else Role.AGENT
+                            msg = Message(role=role, parts=[Part(**p) for p in itm.get("parts")])
+                            messages.append(msg)
+                            continue
+                        # Generic role/content
+                        content = coerce_text(itm.get("content") or itm.get("text"))
+                        if content:
+                            messages.append(self.create_text_message(content, role=Role.AGENT))
+                except Exception:
+                    continue
+
+            # Single message shorthand
+            if not messages and isinstance(container, dict):
+                single = container.get("message") or container.get("response") or container.get("output") or container.get("answer") or result.get("message")
+                text = coerce_text(single)
+                if text:
+                    messages.append(self.create_text_message(text, role=Role.AGENT))
+
+            # Fallback to common top-level fields
+            if not messages:
+                for key in ["answer", "content", "text"]:
+                    if isinstance(result.get(key), str):
+                        messages.append(self.create_text_message(result[key], role=Role.AGENT))
+                        break
+
+        except Exception as e:
+            logger.warning(f"Failed to parse agent task result: {e}")
+
+        return {"messages": messages, "agent_task_id": agent_task_id, "status": new_status}
+
     def validate_agent_card(self, card_data: Dict[str, Any]) -> bool:
         """
         Validate an agent card against the A2A specification.
-        
+
         Args:
             card_data: Agent card data to validate
-            
+
         Returns:
             True if valid, False otherwise
         """
@@ -305,17 +429,17 @@ class A2AProtocolHandler:
                 if field not in card_data:
                     logger.warning(f"Missing required field in agent card: {field}")
                     return False
-            
+
             # Validate URL format
             url = card_data["url"]
             if not url.startswith(('http://', 'https://')):
                 logger.warning(f"Invalid URL format in agent card: {url}")
                 return False
-            
+
             # Try to parse as AgentCard
             AgentCard(**card_data)
             return True
-            
+
         except Exception as e:
             logger.warning(f"Agent card validation failed: {e}")
             return False

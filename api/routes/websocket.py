@@ -218,13 +218,13 @@ async def handle_chat_message(message_data: dict, connection_id: str, session_id
             # Try to auto-register default agent if none available
             try:
                 default_agent_url = "http://127.0.0.1:8888"
-                registration_result = await platform.register_agent(default_agent_url)
+                registration_success = await platform.register_agent(default_agent_url)
 
-                if registration_result.success:
+                if registration_success:
                     await manager.send_session_message({
                         "type": "message",
                         "role": "system",
-                        "content": f"✅ 已自动注册默认代理: {registration_result.agent_card.name}",
+                        "content": "✅ 已自动注册默认代理: CodeGen Expert (http://127.0.0.1:8888)",
                         "session_id": session_id,
                         "timestamp": datetime.now().isoformat()
                     }, session_id)

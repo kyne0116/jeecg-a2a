@@ -104,14 +104,14 @@ async def get_platform_agent_card():
         description=settings.PLATFORM_DESCRIPTION,
         url=settings.base_url,
         version=settings.PLATFORM_VERSION,
-        provider=Provider(
-            name="JEECG",
-            url="https://github.com/jeecg"
-        ),
+        provider={
+            "name": "JEECG",
+            "url": "https://github.com/jeecg"
+        },
         default_input_modes=["text/plain", "application/json"],
         default_output_modes=["text/plain", "application/json"]
     )
-    
+
     # Add platform capabilities
     platform_card.add_capability(
         name="agent_registry",
